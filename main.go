@@ -1,7 +1,10 @@
 package main
 
 import (
+	"MainServer/Messageparser"
+	"bytes"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strconv"
@@ -12,8 +15,8 @@ import (
 )
 
 func getInfoFromFile()string{
-	
-	file, err := os.OpenFile("server.txt", os.O_CREATE|os.O_RDONLY, 0755)
+
+	file, err := os.OpenFile("server.txt", os.O_CREATE|os.O_RDONLY, 0666)
 	if err != nil{
 		panic(err)
 	}
@@ -66,7 +69,7 @@ func parseInfoFromFile(info string)[]*net.UDPAddr{
 func createConnections(parsedInfo []*net.UDPAddr)[]net.Conn{
 	result := []net.Conn{}
 	for _, addr := range parsedInfo{
-		
+
 		conn, err := net.Dial("udp", addr.String())
 		if err != nil{
 			panic(err)
@@ -76,15 +79,44 @@ func createConnections(parsedInfo []*net.UDPAddr)[]net.Conn{
 	return result
 }
 
-func checkServersToReady(subServers []net.Conn)[]net.Conn{
-	result := []net.Conn{}
+func cleanedresp(buff []byte)string{
+	var cleaned string
+	for _, value := range buff{
+		if value == 0{
+			continue
+		}
+		cleaned += string(value)
+	}
+	return cleaned
+}
+
+func unformat(buff []byte)string{
+	cleaned := cleanedresp(buff)
+	splittedValue := strings.Split(cleaned, "_")
+	if len(splittedValue) == 1{
+		return splittedValue[0]
+	}
+	return splittedValue[1]
+}
+
+func checkServersToReady(subServers []net.Conn)[]*Messageparser.Message{
+	var result []*Messageparser.Message
+	result = append(result, new(Messageparser.Message))
+	
 	for _, server := range subServers{
 		server.SetReadDeadline(time.Now().Add(1 * time.Second))
-		server.Write([]byte("OK///"))
-		buff := make([]byte, 1)
-		server.Read(buff)
-		if string(buff) == "1"{
-			result = append(result, server)
+
+		parser := Messageparser.Parser(new(Messageparser.Message))
+		b := parser.Parse(Messageparser.NewMessage())
+
+		server.Write(b)
+		
+		var buff bytes.Buffer
+		io.Copy(&buff, server)
+
+		message := parser.Unparse(buff.Bytes())
+		if message[0].Error == "200"{
+			result[0].Body = append(result[0].Body, server.RemoteAddr().String())
 		}
 	}
 	return result
@@ -127,15 +159,25 @@ func main(){
 	}
 	subServers := getSubServers()
 	for{
-		buff := make([]byte, 4096)
-		_, addr, err := connection.ReadFromUDP(buff)
+		notCleaned := make([]byte, 4096)
+		_, addr, err := connection.ReadFromUDP(notCleaned)
 		if err != nil{
 			panic(err)
 		}
+		var buff []byte
+		for _, value := range notCleaned{
+			if value != 0{
+				buff = append(buff, value)
+			}
+		}
+		parser := Messageparser.Parser(new(Messageparser.Message))
+		message := parser.Unparse(buff)
 		switch{
-		case strings.Contains(string(buff), "CheckServers"):
-			message := formatMessage(checkServersToReady(subServers))
-			connection.WriteTo([]byte(message), addr)
+		case message[0].Type == "CheckServers":
+			readyServers := checkServersToReady(subServers)
+			readyServers[0].Index = message[0].Index
+			b := parser.Parse(readyServers)
+			connection.WriteTo(b, addr)
 		default:
 			connection.WriteTo([]byte("Commands is not avaialable!\n"), addr)
 		}
