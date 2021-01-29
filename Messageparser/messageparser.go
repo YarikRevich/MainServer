@@ -1,15 +1,14 @@
 package Messageparser
 
-import(
-	"log"
-	"fmt"
+import (
 	"encoding/json"
+	"log"
 )
 
 type Parser interface{
 
 	Parse([]*Message)[]byte
-	Unparse([]byte)[]*Message
+	Unparse([]byte)([]*Message, error)
 }
 
 type Message struct{
@@ -28,23 +27,21 @@ func (m *Message) Parse(message []*Message)[]byte{
 	return b
 }
 
-func (m *Message) Unparse(message []byte)[]*Message{
+func (m *Message) Unparse(message []byte)([]*Message, error){
 	var unparsed []*Message
-	fmt.Println(string(message))
+	//fmt.Println(string(message))
 	err := json.Unmarshal(message, &unparsed)
 	if err != nil{
-		log.Fatalln(err)
+		return nil, err
+		//_, _ = fmt.Fprintln(os.Stderr, string(message))
 	}
-	return unparsed
+	return unparsed, nil
 }
 
 func NewMessage()[]*Message{
 	return []*Message{
-		&Message{
-			Index:           0,
-			Error:           "0",
-			Type:            "OK",
-			Body:            []string{},
+		{
+			Type:       "OK",
 		},
 	}
 }
